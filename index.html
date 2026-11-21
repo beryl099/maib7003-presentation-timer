@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#111318" />
+    <meta name="description" content="四个 Stream 的十分钟 Presentation 精准倒计时" />
+    <title>Stream Presentation Timer</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="timers" aria-label="倒计时">
+        <article class="timer-card total-card">
+          <div class="card-top"><span class="card-tag">10:00 TOTAL</span></div>
+          <div class="timer-value" id="totalTime" role="timer" aria-label="整组剩余时间">10:00</div>
+          <div class="card-bottom"><span id="totalPercent">0%</span></div>
+          <div class="progress-track"><div class="progress-fill total-fill" id="totalProgress"></div></div>
+          <div class="controls" aria-label="计时控制">
+            <button type="button" class="primary-button" id="startButton">Start</button>
+            <button type="button" class="secondary-button" id="pauseButton" disabled>Pause</button>
+            <button type="button" class="text-button" id="resetButton">Reset</button>
+          </div>
+        </article>
+
+        <article class="timer-card stream-card" id="streamCard">
+          <div class="card-top"><span class="card-tag orange-tag">02:30 / STREAM</span></div>
+          <div class="stream-name" id="streamName">STREAM 1</div>
+          <div class="timer-value orange-value" id="streamTime" role="timer" aria-label="当前 Stream 剩余时间">02:30</div>
+          <div class="card-bottom"><span id="streamCaption">Ready</span><span id="streamFraction">01 / 04</span></div>
+          <div class="progress-track"><div class="progress-fill stream-fill" id="streamProgress"></div></div>
+        </article>
+      </section>
+      <div class="sr-only" id="announcement" aria-live="polite"></div>
+    </main>
+    <script type="module" src="./app.mjs"></script>
+  </body>
+</html>
