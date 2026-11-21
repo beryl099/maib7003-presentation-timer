@@ -24,11 +24,15 @@
         </article>
 
         <article class="timer-card stream-card" id="streamCard">
-          <div class="card-top"><span class="card-tag orange-tag">02:30 / STREAM</span></div>
+          <div class="card-top"><span class="card-tag orange-tag" id="streamAllocation">02:30 / STREAM</span></div>
           <div class="stream-name" id="streamName">STREAM 1</div>
           <div class="timer-value orange-value" id="streamTime" role="timer" aria-label="当前 Stream 剩余时间">02:30</div>
           <div class="card-bottom"><span id="streamCaption">Ready</span><span id="streamFraction">01 / 04</span></div>
           <div class="progress-track"><div class="progress-fill stream-fill" id="streamProgress"></div></div>
+          <div class="stream-controls">
+            <button type="button" class="secondary-button" id="endStreamButton" disabled>End Stream 1</button>
+            <span class="handoff-note" id="handoffNote">Tap End Stream when the speaker actually finishes.</span>
+          </div>
         </article>
       </section>
       <div class="sr-only" id="announcement" aria-live="polite"></div>

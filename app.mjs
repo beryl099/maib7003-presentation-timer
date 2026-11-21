@@ -1,24 +1,32 @@
-import { TOTAL_MS, getTimerSnapshot, formatTime } from './timer-core.mjs';
+import { STREAM_COUNT, STREAM_MS, allocateRemainingTime, getTimerSnapshot, formatTime, formatStreamTime } from './timer-core.mjs';
 
-const STORAGE_KEY = 'stream-presentation-timer-v1';
+const STORAGE_KEY = 'stream-presentation-timer-v2';
 const $ = (id) => document.getElementById(id);
 const elements = {
   totalTime: $('totalTime'), streamTime: $('streamTime'), streamName: $('streamName'),
+  streamAllocation: $('streamAllocation'),
   totalProgress: $('totalProgress'), streamProgress: $('streamProgress'),
   totalPercent: $('totalPercent'), streamCaption: $('streamCaption'),
-  streamFraction: $('streamFraction'),
+  streamFraction: $('streamFraction'), handoffNote: $('handoffNote'),
   startButton: $('startButton'), pauseButton: $('pauseButton'), resetButton: $('resetButton'),
-  announcement: $('announcement'),
+  endStreamButton: $('endStreamButton'), announcement: $('announcement'),
 };
 
-const defaultState = () => ({ phase: 'idle', accumulatedMs: 0, startedAt: null, lastElapsed: 0 });
+const defaultState = () => ({
+  phase: 'idle', accumulatedMs: 0, startedAt: null, lastElapsed: 0,
+  streamIndex: 0, streamStartedAtMs: 0, streamBudgetMs: STREAM_MS,
+  actualDurations: [],
+});
 let state = defaultState();
-let previousStream = 0;
 let tickHandle;
 
 try {
   const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
-  if (saved && ['running', 'paused', 'finished'].includes(saved.phase) && Number.isFinite(saved.accumulatedMs)) {
+  if (saved && ['running', 'paused', 'finished'].includes(saved.phase)
+    && Number.isFinite(saved.accumulatedMs)
+    && Number.isInteger(saved.streamIndex) && saved.streamIndex >= 0 && saved.streamIndex < STREAM_COUNT
+    && Number.isFinite(saved.streamStartedAtMs) && Number.isFinite(saved.streamBudgetMs)
+    && Array.isArray(saved.actualDurations)) {
     state = { ...defaultState(), ...saved };
     if (state.phase === 'running' && !Number.isFinite(state.startedAt)) state = defaultState();
   }
@@ -32,36 +40,39 @@ function elapsedNow() {
   if (state.phase !== 'running') return state.accumulatedMs;
   const computed = state.accumulatedMs + Math.max(0, Date.now() - state.startedAt);
   state.lastElapsed = Math.max(state.lastElapsed || 0, computed);
-  return Math.min(TOTAL_MS, state.lastElapsed);
+  return state.lastElapsed;
 }
 
 function render() {
-  const snap = getTimerSnapshot(elapsedNow());
-  if (snap.finished && state.phase === 'running') {
-    state = { phase: 'finished', accumulatedMs: TOTAL_MS, startedAt: null, lastElapsed: TOTAL_MS };
-    persist();
-  }
-  if (state.phase === 'running' && snap.streamIndex !== previousStream) {
-    elements.announcement.textContent = `Stream ${snap.streamIndex + 1} 开始`; 
-  }
-  if (snap.finished && previousStream !== 4) {
-    elements.announcement.textContent = '全部四组发言时间结束';
-  }
-  previousStream = snap.finished ? 4 : snap.streamIndex;
-
+  const snap = getTimerSnapshot(elapsedNow(), state.streamIndex, state.streamStartedAtMs, state.streamBudgetMs);
+  const finished = state.phase === 'finished';
   elements.totalTime.textContent = formatTime(snap.totalRemaining);
-  elements.streamTime.textContent = formatTime(snap.streamRemaining);
+  elements.streamTime.textContent = formatStreamTime(snap.streamRemaining);
   elements.streamName.textContent = `STREAM ${snap.streamIndex + 1}`;
-  elements.streamTime.classList.toggle('warning', state.phase !== 'idle' && snap.streamRemaining <= 15_000);
-  elements.streamTime.classList.toggle('critical', state.phase === 'running' && !snap.finished && snap.streamRemaining <= 5_000);
+  elements.streamAllocation.textContent = `${formatTime(snap.streamBudgetMs)} / STREAM`;
+  elements.streamTime.classList.toggle('warning', !finished && state.phase !== 'idle' && snap.streamRemaining <= 15_000);
+  elements.streamTime.classList.toggle('critical', !finished && state.phase === 'running' && snap.streamRemaining <= 5_000);
   elements.totalProgress.style.width = `${snap.totalProgress * 100}%`;
   elements.streamProgress.style.width = `${snap.streamProgress * 100}%`;
   elements.totalPercent.textContent = `${Math.floor(snap.totalProgress * 100)}%`;
   elements.streamFraction.textContent = `0${snap.streamIndex + 1} / 04`;
-  elements.streamCaption.textContent = snap.finished ? 'Finished' : state.phase === 'paused' ? 'Paused' : state.phase === 'running' ? 'Speaking' : 'Ready';
-  elements.startButton.textContent = state.phase === 'paused' ? 'Resume' : state.phase === 'finished' ? 'Restart' : 'Start';
+  elements.streamCaption.textContent = finished ? 'Finished' : state.phase === 'paused' ? 'Paused'
+    : snap.streamRemaining < 0 ? 'Overtime' : state.phase === 'running' ? 'Speaking' : 'Ready';
+  elements.startButton.textContent = state.phase === 'paused' ? 'Resume' : finished ? 'Restart' : 'Start';
   elements.startButton.disabled = state.phase === 'running';
   elements.pauseButton.disabled = state.phase !== 'running';
+  elements.endStreamButton.disabled = state.phase === 'idle' || finished;
+  elements.endStreamButton.textContent = snap.streamIndex === STREAM_COUNT - 1 ? 'Finish Stream 4' : `End Stream ${snap.streamIndex + 1}`;
+
+  const lastIndex = state.actualDurations.length - 1;
+  if (lastIndex >= 0) {
+    const actual = formatTime(Math.round(state.actualDurations[lastIndex] / 1000) * 1000);
+    elements.handoffNote.textContent = finished
+      ? `Stream 4 actual: ${actual}`
+      : `Stream ${lastIndex + 1} actual: ${actual} · Remaining streams: ${formatTime(snap.streamBudgetMs)} each`;
+  } else {
+    elements.handoffNote.textContent = 'Tap End Stream when the speaker actually finishes.';
+  }
 }
 
 function scheduleTick() {
@@ -76,7 +87,6 @@ elements.startButton.addEventListener('click', () => {
   if (state.phase === 'running') return;
   state.startedAt = Date.now();
   state.phase = 'running';
-  previousStream = getTimerSnapshot(state.accumulatedMs).streamIndex;
   persist();
   render();
   scheduleTick();
@@ -90,9 +100,29 @@ elements.pauseButton.addEventListener('click', () => {
   render();
   scheduleTick();
 });
+elements.endStreamButton.addEventListener('click', () => {
+  if (state.phase === 'idle' || state.phase === 'finished') return;
+  const at = elapsedNow();
+  const completedIndex = state.streamIndex;
+  state.actualDurations.push(Math.max(0, at - state.streamStartedAtMs));
+  if (completedIndex === STREAM_COUNT - 1) {
+    state.accumulatedMs = at;
+    state.startedAt = null;
+    state.phase = 'finished';
+    elements.announcement.textContent = 'All four streams finished.';
+  } else {
+    state.streamIndex += 1;
+    state.streamStartedAtMs = at;
+    state.streamBudgetMs = allocateRemainingTime(at, completedIndex);
+    elements.announcement.textContent = `Stream ${state.streamIndex + 1} starts with ${formatTime(state.streamBudgetMs)}.`;
+  }
+  persist();
+  render();
+  scheduleTick();
+});
 elements.resetButton.addEventListener('click', () => {
   state = defaultState();
-  previousStream = 0;
+  elements.announcement.textContent = '';
   persist();
   render();
   scheduleTick();
@@ -101,7 +131,12 @@ document.addEventListener('visibilitychange', () => { render(); scheduleTick(); 
 window.addEventListener('pageshow', () => { render(); scheduleTick(); });
 window.addEventListener('storage', (event) => {
   if (event.key !== STORAGE_KEY) return;
-  try { state = JSON.parse(event.newValue) || defaultState(); previousStream = getTimerSnapshot(elapsedNow()).streamIndex; render(); scheduleTick(); } catch { /* Ignore malformed external state. */ }
+  try {
+    const saved = JSON.parse(event.newValue);
+    state = saved && Number.isInteger(saved.streamIndex) ? saved : defaultState();
+    render();
+    scheduleTick();
+  } catch { /* Ignore malformed external state. */ }
 });
 render();
 scheduleTick();
